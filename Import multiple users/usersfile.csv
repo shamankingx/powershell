@@ -1,0 +1,2 @@
+firstname,middleInitial,lastname,username,email,streetaddress,city,zipcode,state,country,department,description,scriptPath,password,telephone,jobtitle,company,ou
+Example1,Mid1,Last1,example1,example@email.example,Bangkok,Bangkok,99999,Bangkok,Thailand,IT,IT staff,,P@ssw0rd,0123456789,IT,Example,"CN=Users,DC=example,DC=local"
