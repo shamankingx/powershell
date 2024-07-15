@@ -2,7 +2,7 @@
 Import-Module activedirectory
   
 # location to store users file
-$ADUsers = Import-csv C:\temp\addmultiUser.csv -Encoding UTF8
+$ADUsers = Import-csv C:\temp\usersfile.csv
 
 # read parameter from users file
 foreach ($User in $ADUsers)
