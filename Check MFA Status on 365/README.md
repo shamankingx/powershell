@@ -1,6 +1,7 @@
-# Export Microsoft 365 MFA Status Using Microsoft Graph PowerShell
+# 📊 Export Microsoft 365 MFA Status Using Microsoft Graph PowerShell
 
-This guide explains how to use the provided PowerShell script to export the Multi-Factor Authentication (MFA) status of all users in your Microsoft 365 tenant.
+This guide explains how to use the PowerShell script to **export the Multi-Factor Authentication (MFA) status** for all users in your Microsoft 365 tenant.
+The script works with **Microsoft Graph PowerShell SDK** and includes detection for both **Per-user MFA** and **Conditional Access (CA)**-based MFA enforcement.
 
 ---
 
@@ -14,31 +15,35 @@ Before running the script, ensure you have:
    Install-Module Microsoft.Graph -Scope CurrentUser
    ```
 
-2. **Permission to read users’ authentication methods**
+2. **Sufficient admin permissions**
 
-   * You must have at least one of the following roles:
+   You must have one of the following roles:
 
-     * Global Administrator
-     * Privileged Authentication Administrator
-     * Authentication Policy Administrator
+   * Global Administrator
+   * Privileged Authentication Administrator
+   * Authentication Policy Administrator
 
-3. **Signed in to Microsoft Graph**
+3. **Connect to Microsoft Graph**
+
+   Run this command to authenticate:
 
    ```powershell
-   Connect-MgGraph -Scopes "User.Read.All","Reports.Read.All","Directory.Read.All"
+   Connect-MgGraph -Scopes "User.Read.All","Policy.Read.All","Directory.Read.All","UserAuthenticationMethod.Read.All"
    ```
 
 ---
 
 ## 📜 Script Overview
 
-The script performs the following steps:
+The script performs the following key steps:
 
-1. **Fetches all users** from the Microsoft 365 tenant using `Get-MgUser`.
-2. **Loops through each user** to check their MFA registration methods via `Get-MgUserAuthenticationMethod`.
-3. **Identifies MFA methods** (e.g., Microsoft Authenticator, Phone, FIDO2 Key, etc.).
-4. **Determines MFA status** — whether *Enabled* (has MFA method) or *Disabled*.
-5. **Exports the results** to a CSV file named `MFAStatus.csv`.
+1. **Connects to Microsoft Graph** with the necessary scopes.
+2. **Fetches all users** in your Microsoft 365 tenant using `Get-MgUser`.
+3. **Retrieves Conditional Access policies** that enforce MFA.
+4. **Checks per-user MFA settings** (`StrongAuthenticationRequirements`).
+5. **Checks registered MFA methods** using `Get-MgUserAuthenticationMethod`.
+6. **Determines enforcement type** — *Per-user MFA*, *Conditional Access MFA*, or *None*.
+7. **Exports the final report** to a CSV file named `MFAStatus.csv`.
 
 ---
 
@@ -47,67 +52,101 @@ The script performs the following steps:
 ### 1. Get all users
 
 ```powershell
-$users = Get-MgUser -All
+$users = Get-MgUser -All -Property "id,displayName,userPrincipalName,strongAuthenticationRequirements"
 ```
 
-Retrieves all user accounts from the Microsoft 365 tenant.
+Retrieves all user accounts with key properties needed to evaluate MFA.
 
-### 2. Loop through each user
+---
+
+### 2. Get Conditional Access policies that enforce MFA
 
 ```powershell
-foreach ($user in $users) {
-    $methods = Get-MgUserAuthenticationMethod -UserId $user.Id
+$CAPolicies = Get-MgIdentityConditionalAccessPolicy -All | Where-Object {
+    $_.GrantControls.BuiltInControls -contains "mfa" -and $_.State -eq "enabled"
 }
 ```
 
-Gets MFA methods for each user.
+Filters Conditional Access policies that are **enabled** and require **MFA** as a grant control.
 
-### 3. Identify MFA methods
+---
 
-The script checks the method type from Microsoft Graph and translates it into readable names:
+### 3. Get MFA registration methods for each user
+
+```powershell
+$methods = Get-MgUserAuthenticationMethod -UserId $user.Id
+```
+
+Retrieves all authentication methods registered by each user and translates the Graph type into readable names:
 
 * Microsoft Authenticator
 * Phone (SMS/Call)
 * FIDO2 Security Key
 * OATH Token
 * Email
+* Temporary Access Pass (TAP)
 
-### 4. Determine MFA status
+---
+
+### 4. Determine MFA registration and enforcement
 
 ```powershell
-$mfaEnabled = if ($mfaMethods.Count -gt 0) { "Enabled" } else { "Disabled" }
+$isRegistered = if ($mfaMethods.Count -gt 0) { "Yes" } else { "No" }
 ```
 
-### 5. Export results
+Checks if the user has registered at least one MFA method.
+
+```powershell
+if ($mfaState -eq "Enabled") {
+    $enforcedType = "Per-user MFA"
+}
+elseif ($caApplies) {
+    $enforcedType = "Conditional Access MFA"
+}
+else {
+    $enforcedType = "None"
+}
+```
+
+Determines how MFA is enforced — either by per-user setting or Conditional Access.
+
+---
+
+### 5. Export results to CSV
 
 ```powershell
 $results | Export-Csv -Path ".\MFAStatus.csv" -NoTypeInformation -Encoding UTF8
 ```
 
-Saves the final report in CSV format.
+Saves the report to a CSV file in the same directory as the script.
 
 ---
 
 ## 📂 Output Example (`MFAStatus.csv`)
 
-| UserPrincipalName                             | DisplayName | MFAStatus | MFAMethods                     |
-| --------------------------------------------- | ----------- | --------- | ------------------------------ |
-| [alice@contoso.com](mailto:alice@contoso.com) | Alice Smith | Enabled   | Microsoft Authenticator, Phone |
-| [bob@contoso.com](mailto:bob@contoso.com)     | Bob Jones   | Disabled  |                                |
+| UserPrincipalName                                 | DisplayName | MFA_Registered | MFA_Enforced           | MFAMethods              |
+| ------------------------------------------------- | ----------- | -------------- | ---------------------- | ----------------------- |
+| [alice@contoso.com](mailto:alice@contoso.com)     | Alice Smith | Yes            | Conditional Access MFA | Microsoft Authenticator |
+| [bob@contoso.com](mailto:bob@contoso.com)         | Bob Jones   | No             | None                   |                         |
+| [charlie@contoso.com](mailto:charlie@contoso.com) | Charlie Kim | Yes            | Per-user MFA           | FIDO2 Security Key, SMS |
 
 ---
 
 ## ▶️ How to Run
 
-1. Open **PowerShell** as Administrator.
-2. Run the following commands:
+1. **Open PowerShell** as Administrator.
+2. **Connect to Microsoft Graph** (you’ll be prompted to sign in):
 
    ```powershell
-   Connect-MgGraph -Scopes "User.Read.All","UserAuthenticationMethod.Read.All"
+   Connect-MgGraph -Scopes "User.Read.All","Policy.Read.All","Directory.Read.All","UserAuthenticationMethod.Read.All"
    ```
-3. Copy and paste the script into your PowerShell session.
-4. Wait until completion.
-5. Check the exported file:
+3. **Run the script** (save it as `Export-MFAStatus.ps1`):
+
+   ```powershell
+   .\Export-MFAStatus.ps1
+   ```
+4. Wait for the script to finish collecting user data.
+5. Once complete, check your output file:
 
    ```
    MFAStatus.csv
@@ -117,10 +156,34 @@ Saves the final report in CSV format.
 
 ## 🧾 Notes
 
-* The script uses **Microsoft Graph API**, not the legacy MSOnline module.
-* Use `-ErrorAction SilentlyContinue` to skip users that cannot be queried.
-* The report is saved in the same directory where the script is executed.
+* The script uses the **Microsoft Graph PowerShell SDK** — the modern replacement for legacy modules like *MSOnline* and *AzureAD*.
+* Users who can’t be queried (e.g., service accounts or external guests) will be skipped automatically.
+* The exported file is saved in UTF-8 format for easy viewing in Excel.
+* Large tenants may take several minutes to complete due to Graph API throttling.
 
 ---
 
-✅ **Result:** You will get a complete MFA registration report for all users in your Microsoft 365 tenant in `MFAStatus.csv`.
+## ✅ Result
+
+After completion, you’ll get a detailed **MFA status report** showing:
+
+* Whether each user has MFA registered
+* Whether MFA is enforced (and by what method)
+* Which MFA methods are configured
+
+This report provides a **complete view of MFA adoption and enforcement** in your Microsoft 365 environment.
+
+---
+
+## 🧾 Changelog
+
+| Version | Date             | Notes                                                          |
+| ------- | ---------------- | -------------------------------------------------------------- |
+| v1.0    | Initial          | Basic MFA registration check                                   |
+| v2.0    | Enhanced         | Added Conditional Access and TAP detection                     |
+
+---
+
+**Author:** Warawuth Phralabraksa
+**Last Updated:** October 2025
+**Category:** Microsoft 365 Security & Compliance Automation
